@@ -5086,33 +5086,27 @@ local v8 = (function()
 
 		for k, v11 in pairs(arg.records or {}) do
 			if (v11.State == AreaEggs.States.Slot or v11.State == AreaEggs.States.Dropped) and v11.BottomCFrame then
-				if arg:isSkippedEgg(v11.Uid) then
-				else
-					if arg:_matchesNormalFilter(v11) then
-						local v12 = arg.catalog.resolve(v11)
+				if not arg:isSkippedEgg(v11.Uid) and arg:_matchesNormalFilter(v11) then
+					local v12 = arg.catalog.resolve(v11)
+					local magnitude = humanoidRootPart and (v11.BottomCFrame.Position - humanoidRootPart.Position).Magnitude or 0
+					local rarityRank = if arg.config.highestValueFirst then fn66(v11) or -1 / 0
+						elseif arg.config.heaviestFirst then arg:_resolveWeightKg(v11) or -1 / 0
+						else (v12.rarityRank or 0)
 
-						if tbl11[v12.rarity] then
-							local magnitude = humanoidRootPart and (v11.BottomCFrame.Position - humanoidRootPart.Position).Magnitude or 0
-							local rarityRank = v12.rarityRank or 0
-
-							if v8 then
-								if rarityRank > v9 then
-									v8 = v11
-									v9 = rarityRank
-									v10 = magnitude
-								else
-									if rarityRank == v9 and magnitude < v10 then
-										v8 = v11
-										v9 = rarityRank
-										v10 = magnitude
-									end
-								end
-							else
-								v8 = v11
-								v9 = rarityRank
-								v10 = magnitude
-							end
+					if v8 then
+						if rarityRank > v9 then
+							v8 = v11
+							v9 = rarityRank
+							v10 = magnitude
+						elseif rarityRank == v9 and magnitude < v10 then
+							v8 = v11
+							v9 = rarityRank
+							v10 = magnitude
 						end
+					else
+						v8 = v11
+						v9 = rarityRank
+						v10 = magnitude
 					end
 				end
 			end
@@ -5275,6 +5269,10 @@ local v8 = (function()
 			local v8, v9 = arg:hasPriorityRareEgg()
 			if v8 and v9 then
 				return v9
+			end
+
+			if arg.config.rarityEnabled or arg.config.nameEnabled or arg.config.areaEnabled then
+				return nil
 			end
 		end
 
@@ -10888,6 +10886,9 @@ local v8 = (function()
 				return arg:_finish("Grab timeout - retrying")
 			end
 
+			arg.carry.active = true
+			arg.carry.uid = uid
+
 			arg:_setStatus("Instant Teleport - Teleporting home")
 			local returnStart = os.clock()
 			local returnTime = 0.08
@@ -10901,28 +10902,41 @@ local v8 = (function()
 				RunService2.Stepped:Wait()
 			end
 
-			local holdStart = os.clock()
-			while (if arg.destroyed then false else arg.enabled) and os.clock() - holdStart < 0.8 do
+			arg:_setStatus("Waiting for deposit")
+			local depositDeadline = os.clock() + 5.0
+
+			local function isBanked()
+				local rec = EggState2.ReadFieldEgg(uid)
+				return rec == nil or rec.State == AreaEggs.States.Claimed
+			end
+
+			while (if arg.destroyed then false else arg.enabled) and not isBanked() and os.clock() < depositDeadline do
 				humanoidRootPart.AssemblyLinearVelocity = Vector3.zero
 				humanoidRootPart.AssemblyAngularVelocity = Vector3.zero
 				humanoidRootPart.CFrame = safeCF
 				character:PivotTo(safeCF)
 
-				local rec = EggState2.ReadFieldEgg(uid)
-				if not rec or rec.State == AreaEggs.States.Claimed or rec.State ~= AreaEggs.States.Carried then
-					break
-				end
-				if type(EggState2.DropFieldEgg) == "function" then
-					pcall(EggState2.DropFieldEgg, "PlayerRequest")
-				end
+				pcall(function()
+					if type(EggState2.DropFieldEgg) == "function" then
+						EggState2.DropFieldEgg("PlayerRequest")
+					end
+				end)
+
 				RunService2.Heartbeat:Wait()
 			end
 
-			arg.stats.delivered = (arg.stats.delivered or 0) + 1
+			arg._instantBusyUid = nil
 			arg.carry.active = false
 			arg.carry.uid = nil
 			arg.activeTarget = nil
-			arg:_finish("Delivered successfully")
+
+			if isBanked() then
+				arg.stats.delivered = (arg.stats.delivered or 0) + 1
+				arg:_reportStolen()
+				arg:_finish("Safe return complete")
+			else
+				arg:_finish("Bank not confirmed - retrying")
+			end
 		end)
 
 		if arg._instantBusyUid == uid then
@@ -33179,7 +33193,7 @@ local function fn67(arg)
 		Multi = true,
 		Default = {},
 		Callback = function(v)
-			quantumConfig.StealNamesFilter = fn67(v)
+			fn91("names", "name", v)
 		end
 	})
 
@@ -33190,7 +33204,7 @@ local function fn67(arg)
 		Multi = true,
 		Default = {},
 		Callback = function(v)
-			quantumConfig.StealRarities = fn67(v)
+			fn91("rarities", "rarity", v)
 		end
 	})
 
@@ -33201,7 +33215,7 @@ local function fn67(arg)
 		Multi = true,
 		Default = {},
 		Callback = function(v)
-			quantumConfig.StealAreas = fn67(v)
+			fn91("areas", "area", v)
 		end
 	})
 
